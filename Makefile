@@ -1,2 +1,5 @@
 run:
-	sudo go run main.go
+	go run main.go &
+
+server:
+	python3 -m http.server

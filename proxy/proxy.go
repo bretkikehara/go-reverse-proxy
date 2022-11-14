@@ -6,18 +6,77 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"strings"
 
 	hostprovider "github.com/bretkikehara/go-reverse-proxy/host-provider"
 )
 
 type ReverseProxy struct {
 	provider hostprovider.HostProvider
+	targets  []*target
+}
+
+type TargetConfig struct {
+	Subdomain string
+	Host      string
+	Port      int
+	Secure    bool
+}
+
+func (c *TargetConfig) isSecure() bool {
+	return c.Secure || c.Port == 443
+}
+
+func (c *TargetConfig) getURL() (*url.URL, error) {
+	proto := "http"
+	if c.isSecure() {
+		proto = "https"
+	}
+
+	u := fmt.Sprintf("%s://%s", proto, c.Host)
+	if c.Port != 0 && c.Port != 80 && c.Port != 443 {
+		u += fmt.Sprintf(":%d", c.Port)
+	}
+
+	url, err := url.Parse(u)
+	if err != nil {
+		return nil, err
+	}
+	return url, nil
+}
+
+func (c *TargetConfig) createTarget() (*target, error) {
+	url, err := c.getURL()
+	if err != nil {
+		return nil, err
+	}
+	t := target{
+		subdomain: c.Subdomain,
+		proxy:     httputil.NewSingleHostReverseProxy(url),
+	}
+	return &t, nil
+}
+
+type target struct {
+	subdomain string
+	proxy     *httputil.ReverseProxy
 }
 
 // New creates a reverse proxy
-func New(provider hostprovider.HostProvider) *ReverseProxy {
+func New(provider hostprovider.HostProvider, targetConfigs []TargetConfig) *ReverseProxy {
+	var targets []*target
+	for i := range targetConfigs {
+		cfg := targetConfigs[i]
+		t, err := cfg.createTarget()
+		if err != nil {
+			panic(err)
+		}
+		targets = append(targets, t)
+		provider.AddSubdomain(cfg.Subdomain)
+	}
 	return &ReverseProxy{
 		provider: provider,
+		targets:  targets,
 	}
 }
 
@@ -108,10 +167,16 @@ func (pxy *ReverseProxy) handleAdminList(w http.ResponseWriter, r *http.Request)
 	return nil
 }
 
+func getSubdomain(h string) string {
+	return strings.SplitN(h, ".", 2)[0]
+}
+
 func (pxy *ReverseProxy) handleReverseProxy(w http.ResponseWriter, r *http.Request) {
-	url, err := url.Parse("http://localhost:8000/")
-	if err != nil {
-		panic(err)
+	subdomain := getSubdomain(r.Host)
+	for _, t := range pxy.targets {
+		if subdomain == t.subdomain {
+			t.proxy.ServeHTTP(w, r)
+			break
+		}
 	}
-	httputil.NewSingleHostReverseProxy(url).ServeHTTP(w, r)
 }

@@ -73,6 +73,23 @@ func (p *etchostProvider) RemoveSubdomain(subdomin string) error {
 	return p.RemoveHost(p.formatSubdomain(subdomin))
 }
 
+func (p *etchostProvider) RemoveTLD(tld string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if err := p.hfile.Load(); err != nil {
+		return err
+	}
+	p.hfile.Remove("127.0.0.1", tld)
+	for _, l := range p.hfile.Lines {
+		for _, h := range l.Hosts {
+			if strings.HasSuffix(h, tld) {
+				p.hfile.Remove("127.0.0.1", h)
+			}
+		}
+	}
+	return p.hfile.Flush()
+}
+
 func (p *etchostProvider) RemoveHost(fullhost string) error {
 	if !strings.HasSuffix(fullhost, p.tld) {
 		return errors.New("provider host mismatch")

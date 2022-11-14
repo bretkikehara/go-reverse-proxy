@@ -6,5 +6,7 @@ type HostProvider interface {
 	AddSubdomain(subdomain string) error
 	RemoveSubdomain(subdomain string) error
 	ListSubdomains() []string
+
+	RemoveTLD(tld string) error
 	GetTLD() string
 }
